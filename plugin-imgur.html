@@ -1,0 +1,153 @@
+<template id="imgur-selector">
+    <div>
+        <a @click="pickImage()">
+            <i class="fa fa-file-image-o" :class="[this.uploading ? 'fa-spin' : '']"></i>
+            <input
+                @change="uploadImage($event)"
+                id="ImgurUploader"
+                type="file"
+                accept=".jpg,.jpeg,.png,.gif,.apng,.tiff"
+                style="display: none; width: 0; height: 0;">
+        </a>
+    </div>
+</template>
+<template id="imgur-embeded">
+    <div>
+        <a :href="imgur" target="_blank">{{imgur}}</a>
+        <i
+            @click="toggleImage()"
+            :class="[show ? 'fa-angle-down' : 'fa-angle-right']"
+            class="fa fa-fw"
+            aria-hidden="true"
+            style="font-size: 1.3em; font-weight: bold; display: inline-block;"
+        ></i>
+        <img
+            v-if="show"
+            :src="imgur"
+            style="display: block; max-height: 300px; cursor: pointer;"
+        >
+    </div>
+</template>
+
+<script>
+kiwi.plugin('imgur', function(kiwi, log) {
+    // Generate a clientID here: https://api.imgur.com/oauth2/addclient
+    // Select: 'Anonymous usage without user authorization'
+    var IMGUR_API_KEY = 'PUT YOUR IMGUR API KEY HERE';
+    var IMGUR_MAX_SIZE = 10240;
+
+    // Default client settings
+    kiwi.state.setSetting('settings.pluginImgurAutoShow', true);
+
+    var imgurSelector = new kiwi.Vue({
+        template: '#imgur-selector',
+        data() {
+            return {
+                uploading: false,
+            };
+        },
+        methods: {
+            pickImage: function pickImage() {
+                if (this.uploading) {
+                    return;
+                }
+                document.querySelector('#ImgurUploader').click();
+            },
+            uploadImage: function uploadImage(event) {
+                var file = event.target.files[0];
+                if (!file) {
+                    return;
+                }
+                if (!this.isSupported(file.type)) {
+                    this.sendMessage('Imgur Upload: Sorry, only images can be uploaded to imgur.', 'error');
+                    return;
+                }
+                if (!file.size >= IMGUR_MAX_SIZE) {
+                    this.sendMessage('Imgur Upload: Sorry, file size limit is ${IMGUR_MAX_SIZE} bytes, you tried to upload ${file.size} bytes.', 'error');
+                    return;
+                }
+                var self = this;
+                var fd = new FormData();
+                fd.append('image', file);
+                var xhttp = new XMLHttpRequest();
+                xhttp.open('POST', 'https://api.imgur.com/3/image');
+                xhttp.onload = function () {
+                    try {
+                        var resp = JSON.parse(xhttp.responseText);
+                        if (resp.success && resp.data.link) {
+                            var buffer = kiwi.state.getActiveBuffer();
+                            buffer.say('Imgur Upload: ' + resp.data.link);
+                        } else {
+                            self.sendMessage('Imgur Upload: An error was reported with upload' +
+                                ('error' in resp.data ? ' (' + resp.data.error.message + ')' : ''), 'error');
+                        }
+                    } catch (e) {
+                        self.sendMessage('Imgur Upload: An error was caught while uploading (' + e.message + ')', 'error');
+                    }
+                    self.uploading = false;
+                };
+                xhttp.setRequestHeader('Authorization', 'Client-ID ' + IMGUR_API_KEY);
+                xhttp.send(fd);
+                this.uploading = true;
+            },
+            sendMessage: function sendMessage(message, type) {
+                var buffer = this.$state.getActiveBuffer();
+                this.$state.addMessage(buffer, {
+                    time: Date.now(),
+                    nick: '',
+                    message: message,
+                    type: type,
+                });
+            },
+            isSupported: function isSupported(fileType) {
+                if (fileType && fileType.match(/image\/.*/)) {
+                    return true;
+                }
+                return false;
+            },
+        },
+    });
+
+    if (IMGUR_API_KEY === 'PUT YOUR IMGUR API KEY HERE') {
+        console.error('You forgot to add your imgur api key :(');
+        return;
+    }
+    kiwi.addUi('input', imgurSelector.$mount().$el);
+
+    // Embedding imgur urls into the message list
+    var imgurEmbeded = {
+        template: '#imgur-embeded',
+        data: function data() {
+            return {
+                imgur: '',
+                show: true,
+            };
+        },
+        mounted() {
+            this.show = this.$state.setting('pluginImgurAutoShow');
+        },
+        methods: {
+            toggleImage: function toggleImage() {
+                this.show = !this.show;
+            },
+        },
+    };
+
+    var imgurURL= RegExp('(^|\\s+)(https?://(i.imgur.com/[a-zA-Z0-9]+\\.\\w{3}))(\\s+|$)');
+    kiwi.state.$on('message.new', function postStyle(event) {
+        var message = event.message;
+        if (!message || event.type !== 'privmsg') {
+            return;
+        }
+
+        if (imgurURL.test(event.message)) {
+            var matches = event.message.match(imgurURL);
+            var imgurEmbededComponent = new kiwi.Vue(imgurEmbeded);
+            imgurEmbededComponent.imgur = 'https://' + matches[3];
+            imgurEmbededComponent.$mount();
+            event.bodyTemplate = imgurEmbededComponent;
+        }
+    });
+});
+
+</script>
