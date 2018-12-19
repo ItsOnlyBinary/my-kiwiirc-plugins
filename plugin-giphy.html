@@ -1,0 +1,277 @@
+<template id="giphy-selector">
+    <div class="giphy-inputtool">
+        <a
+            class="u-button u-button-warning kiwi-mediaviewer-controls-close kiwi-close-icon"
+            @click="closeGiphy"
+        >
+            <i class="fa fa-window-close" aria-hidden="true"></i>
+        </a>
+        <div class="giphy-input">
+            <form class="u-form giphy-search-form" autocomplete="off">
+                <label for="giphy-search">
+                    <span>Search Giphy</span>
+                    <input
+                        id="giphy-search"
+                        v-model="giphy_searchString"
+                        type="text"
+                        placeholder="Search Giphy..."
+                        @input="debounceUpdateImages()"
+                        @keydown.enter.prevent>
+                    <div class="giphy-clear" @click="clearSearch()">
+                        <i class="fa fa-times" aria-hidden="true"></i>
+                    </div>
+                </label>
+            </form>
+        </div>
+
+        <div class="giphy-container">
+            <img
+                v-for="item in giphy_image_array"
+                :key="item.id"
+                :src="item.src"
+                class="giphy-images"
+                @click="onImgClick"
+                @mouseover="onMouseOver(item, $event)"
+                @mouseout="onMouseOut(item, $event)"
+            >
+            <p
+                v-if="giphy_image_array.length === 0 && giphy_searchString != ''"
+                class="giphy-no-gifs"
+            >
+                <i class="fa fa-spin fa-spinner" aria-hidden="true"></i>
+            </p>
+        </div>
+    </div>
+</template>
+<template id="giphy-embeded">
+    <div>
+
+        <a :href="giphy" target="_blank">{{giphy}}</a>
+        <i
+            @click="toggleImage()"
+            :class="[show ? 'fa-angle-down' : 'fa-angle-right']"
+            class="fa fa-fw"
+            aria-hidden="true"
+            style="font-size: 1.3em; font-weight: bold; display: inline-block;"
+        ></i>
+        <img
+            v-if="show"
+            :src="src"
+            @mouseover="onMouseOver($event)"
+            @mouseout="onMouseOut($event)"
+            style="display: block; max-height: 300px;"
+        >
+    </div>
+</template>
+<template id="giphy-button">
+    <a @click.prevent="onToolClickGiphy">
+        <i class="fa fa-picture-o" aria-hidden="true"></i>
+    </a>
+</template>
+
+<script>
+kiwi.plugin('giphy', function giphy(kiwi, log) {
+    // Get your api key here:  https://developers.giphy.com/
+    var GIPHY_API_KEY = 'PUT YOUR GIPHY API KEY HERE';
+    var GIPHY_RESULTS_MAX = 30;
+
+    // Default client settings
+    kiwi.state.setSetting('settings.pluginGiphyAutoShow', true);
+
+    var giphySelector = {
+        template: '#giphy-selector',
+        data: function data() {
+            return {
+                giphy_image_array: [],
+                giphy_searchString: '',
+                debounceUpdateImages: _.debounce(this.updateImages, 500),
+            };
+        },
+        mounted() {
+            document.getElementById('giphy-search').focus();
+        },
+        methods: {
+            updateImages: function updateImages() {
+                var self = this;
+                var apiString = 'https://api.giphy.com/v1/gifs/search?';
+                apiString += 'q=' + this.giphy_searchString;
+                apiString += '&api_key=' + GIPHY_API_KEY;
+                apiString += '&limit=' + GIPHY_RESULTS_MAX;
+
+                var xhttp = new XMLHttpRequest();
+                xhttp.onreadystatechange = function giphyReady() {
+                    if (xhttp.readyState === 4 && xhttp.status === 200) {
+                        var imageData = this.responseText;
+                        imageData = JSON.parse(imageData);
+                        imageData = imageData.data;
+                        for (var i = 0; i < imageData.length; i++) {
+                            self.$set(self.giphy_image_array, i, {
+                                src: imageData[i].images.original_still.url,
+                                image: imageData[i].images.original_still.url,
+                                giphy: imageData[i].images.original.url,
+                            });
+                        }
+                        document.getElementsByClassName('giphy-container')[0].scrollLeft = 0;
+                    }
+                };
+                xhttp.open('GET', apiString, true);
+                xhttp.send();
+            },
+            onMouseOver(item, event) {
+                item.src = item.giphy;
+                this.$nextTick(() => {
+                    if (!event.target.complete) {
+                        event.target.onload = function giphyLoaded() {
+                            event.target.style.cursor = 'pointer';
+                        }
+                        event.target.style.cursor = 'wait';
+                    }
+                });
+            },
+            onMouseOut(item, event) {
+                item.src = item.image;
+                event.target.style.cursor = 'pointer';
+            },
+            clearSearch: function clearSearch() {
+                this.giphy_image_array = [];
+                this.giphy_searchString = '';
+            },
+            onImgClick: function onImgClick(img) {
+                var imgSource = img.target.src;
+                this.$state.$emit('input.raw', imgSource);
+                this.closeGiphy();
+            },
+            closeGiphy: function closeGiphy() {
+                this.$state.$emit('input.tool');
+            },
+        },
+    };
+
+    // Embedding imgur urls into the message list
+    var giphyEmbeded = {
+        template: '#giphy-embeded',
+        data: function data() {
+            return {
+                src: '',
+                image: '',
+                giphy: '',
+                show: true,
+            };
+        },
+        mounted() {
+            this.show = this.$state.setting('pluginGiphyAutoShow');
+        },
+        methods: {
+            onMouseOver(event) {
+                this.src = this.giphy;
+                this.$nextTick(() => {
+                    if (!event.target.complete) {
+                        event.target.onload = function giphyLoaded() {
+                            event.target.style.cursor = 'default';
+                        }
+                        event.target.style.cursor = 'wait';
+                    }
+                });
+            },
+            onMouseOut(event) {
+                this.src = this.image;
+                event.target.style.cursor = 'default';
+            },
+            toggleImage: function toggleImage() {
+                this.show = !this.show;
+            },
+        },
+    };
+
+    if (GIPHY_API_KEY === 'PUT YOUR GIPHY API KEY HERE') {
+        console.error('You forgot to add your giphy api key :(');
+        return;
+    }
+
+    var giphyURL = RegExp('(^|\\s+)((https?://media[0-9]\\.giphy\\.com/media/[a-zA-Z0-9]+/giphy)(_s)?\\.gif)(\\s+|$)');
+    kiwi.state.$on('message.new', function postStyle(event) {
+        var message = event.message;
+        if (!message || event.type !== 'privmsg') {
+            return;
+        }
+
+        if (giphyURL.test(event.message)) {
+            var matches = event.message.match(giphyURL);
+            var giphyEmbededComponent = new kiwi.Vue(giphyEmbeded);
+            giphyEmbededComponent.src = matches[3] + '_s.gif';
+            giphyEmbededComponent.image = matches[3] + '_s.gif';
+            giphyEmbededComponent.giphy = matches[3] + '.gif';
+            giphyEmbededComponent.$mount();
+            event.bodyTemplate = giphyEmbededComponent;
+        }
+    });
+
+    var giphyButton = new kiwi.Vue({
+        template: '#giphy-button',
+        methods: {
+            onToolClickGiphy: function onToolClickGiphy() {
+                this.$state.$emit('input.tool', giphySelector);
+            },
+        },
+    });
+    giphyButton.$mount();
+    kiwi.addUi('input', giphyButton.$el);
+});
+
+</script>
+<style>
+
+.giphy-inputtool {
+    display: block;
+    transition: height 0.2s;
+}
+
+.giphy-input {
+    display: block;
+    padding: 20px 0;
+    text-align: center;
+}
+
+.giphy-search-form {
+    display: inline-block;
+    max-width: 320px;
+    position: relative;
+}
+
+.giphy-clear {
+    position: absolute;
+    top: 50%;
+    right: 15px;
+    z-index: 10;
+    margin-top: -3px;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.giphy-clear:hover {
+    color: red;
+}
+
+.giphy-container {
+    display: block;
+    text-align: center;
+    overflow-x: scroll;
+    overflow-y: hidden;
+    white-space: nowrap;
+}
+
+.giphy-no-gifs {
+    font-size: 2em;
+}
+
+.giphy-images {
+    display: inline-block;
+    margin: 0 0.5%;
+    height: 150px;
+    cursor: pointer;
+    background-size: contain;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+</style>
