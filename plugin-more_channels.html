@@ -1,0 +1,25 @@
+<template id="more-channels">
+    <a @click="buttonClicked">
+        <span v-if="$state.ui.app_width > 769">More Channels</span>
+        <i v-else class="fa fa-list" aria-hidden="true" title="More Channels"></i>
+    </a>
+</template>
+<script>
+kiwi.plugin('more_channels', function(kiwi, log) {
+    var button = new kiwi.Vue({
+        template: '#more-channels',
+        methods: {
+            buttonClicked: function buttonClicked() {
+                var network = this.$state.getActiveNetwork();
+                if (!network.channel_list.length && network.channel_list_state !== 'updating') {
+                    network.channel_list_state = 'updating';
+                    network.ircClient.raw('LIST');
+                }
+
+                network.showServerBuffer('channels');
+            }
+        },
+    });
+    kiwi.addUi('header_channel', button.$mount().$el);
+});
+</script>
