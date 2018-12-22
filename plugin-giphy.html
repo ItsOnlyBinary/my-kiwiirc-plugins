@@ -87,7 +87,7 @@ kiwi.plugin('giphy', function giphy(kiwi, log) {
                 debounceUpdateImages: _.debounce(this.updateImages, 500),
             };
         },
-        mounted() {
+        mounted: function mounted() {
             document.getElementById('giphy-search').focus();
         },
         methods: {
@@ -117,9 +117,9 @@ kiwi.plugin('giphy', function giphy(kiwi, log) {
                 xhttp.open('GET', apiString, true);
                 xhttp.send();
             },
-            onMouseOver(item, event) {
+            onMouseOver: function onMouseOver(item, event) {
                 item.src = item.giphy;
-                this.$nextTick(() => {
+                this.$nextTick(function () {
                     if (!event.target.complete) {
                         event.target.onload = function giphyLoaded() {
                             event.target.style.cursor = 'pointer';
@@ -128,7 +128,7 @@ kiwi.plugin('giphy', function giphy(kiwi, log) {
                     }
                 });
             },
-            onMouseOut(item, event) {
+            onMouseOut: function onMouseOut(item, event) {
                 item.src = item.image;
                 event.target.style.cursor = 'pointer';
             },
@@ -158,13 +158,13 @@ kiwi.plugin('giphy', function giphy(kiwi, log) {
                 show: true,
             };
         },
-        mounted() {
+        mounted: function mounted() {
             this.show = this.$state.setting('pluginGiphyAutoShow');
         },
         methods: {
-            onMouseOver(event) {
+            onMouseOver: function onMouseOver(event) {
                 this.src = this.giphy;
-                this.$nextTick(() => {
+                this.$nextTick(function () {
                     if (!event.target.complete) {
                         event.target.onload = function giphyLoaded() {
                             event.target.style.cursor = 'default';
@@ -173,7 +173,7 @@ kiwi.plugin('giphy', function giphy(kiwi, log) {
                     }
                 });
             },
-            onMouseOut(event) {
+            onMouseOut: function onMouseOut(event) {
                 this.src = this.image;
                 event.target.style.cursor = 'default';
             },
