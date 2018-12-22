@@ -41,7 +41,7 @@ kiwi.plugin('imgur', function(kiwi, log) {
 
     var imgurSelector = new kiwi.Vue({
         template: '#imgur-selector',
-        data() {
+        data: function data() {
             return {
                 uploading: false,
             };
@@ -123,7 +123,7 @@ kiwi.plugin('imgur', function(kiwi, log) {
                 show: true,
             };
         },
-        mounted() {
+        mounted: function mounted() {
             this.show = this.$state.setting('pluginImgurAutoShow');
         },
         methods: {
