@@ -1,0 +1,411 @@
+<template id="radio-controls">
+<div class="radio-controls">
+    <div class="radio-controls-buttons">
+        <div class="radio-controls-button" @click="skipStation(-1)" title="Previous Station">
+            <i class="fa fa-fast-backward" aria-hidden="true"></i>
+        </div>
+        <div v-if="playerPlaying" class="radio-controls-button" @click="pauseStation()" title="Pause">
+            <i class="fa fa-pause" aria-hidden="true"></i>
+        </div>
+        <div v-else class="radio-controls-button" @click="playStation()" title="Play">
+            <i class="fa fa-play" aria-hidden="true"></i>
+        </div>
+        <div class="radio-controls-button" @click="skipStation(1)" title="Next Station">
+            <i class="fa fa-fast-forward" aria-hidden="true"></i>
+        </div>
+        <div class="radio-controls-button" @click="openStationsList()" title="Show Station List">
+            <i class="fa fa-th-list" aria-hidden="true"></i>
+        </div>
+        <div class="radio-controls-button radio-controls-volume" @click="">
+            <i v-if="playerVolume == 0" class="fa fa-volume-off fa-fw" aria-hidden="true"></i>
+            <i v-else-if="playerVolume >= 0.5" class="fa fa-volume-up fa-fw" aria-hidden="true"></i>
+            <i v-else class="fa fa-volume-down fa-fw" aria-hidden="true"></i>
+            <div class="radio-controls-volume-container">
+                <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.1"
+                    value="0.8"
+                    class="radio-controls-slider"
+                    @change="changeVolume(playerVolume)"
+                    v-model="playerVolume"
+                    orient="vertical"
+                >
+            </div>
+        </div>
+    </div>
+    <div :class="[stationErrored ? 'radio-controls-errored' : '']" class="radio-controls-station">
+        {{ stationName }}
+    </div>
+    <audio id="radio-audio" preload="none" style="display: none"></audio>
+</div>
+</template>
+
+<template id="radio-stations">
+<div class="radio-stations">
+    <div>
+        <div class="radio-stations-close" @click="plugin.closeStationsList()">Close</div>
+    </div>
+    <table>
+        <tr v-for="station in plugin.stationsList" :key="station.id">
+            <td><img :src="station.image"></td>
+            <td>
+                <div class="radio-stations-details">
+                    <div class="radio-stations-controls">
+                        <div @click="plugin.toggleStarred(station)" class="radio-stations-favorite">
+                            <i :class="[plugin.isStarred(station) ? 'fa-star' : 'fa-star-o']" class="fa" aria-hidden="true"></i>
+                        </div>
+                        <div @click="plugin.playStationClose(station)" class="radio-stations-play">
+                            <i class="fa fa-play" aria-hidden="true"></i>
+                        </div>
+                    </div>
+                    <span class="radio-stations-title">{{ station.name }}</span>
+                    <div>
+                        <span>{{ station.description }}</span>
+                    </div>
+                </div>
+            </td>
+        </tr>
+    </table>
+</div>
+</template>
+
+<script>
+kiwi.plugin('radio', function(kiwi, log) {
+    setDefaultSetting('url', 'stations.json');
+    setDefaultSetting('volume', '0.8');
+    setDefaultSetting('starred', []);
+    setDefaultSetting('active', '');
+
+    // get our station list
+    var xmlhttp = new XMLHttpRequest();
+    xmlhttp.onload = function onLoad(temp) {
+        if (xmlhttp.status !== 200) {
+            console.error('plugin-radio: error loading stations list');
+            return
+        }
+        try {
+            var json = JSON.parse(xmlhttp.responseText);
+            if (!json) {
+                return;
+            }
+            if (json.length > 0) {
+                createComponents(json);
+            }
+        } catch (err) {
+            console.error('plugin-radio: error parsing stations list:', err);
+        }
+    }
+    xmlhttp.open('GET', kiwi.state.setting('plugin-radio.url'), true);
+    xmlhttp.send();
+
+    function createComponents(stationsList) {
+        var RadioControlsComponent = new kiwi.Vue({
+            template: '#radio-controls',
+            data: function data() {
+                return {
+                    stationsList: stationsList,
+                    playerElement: null,
+                    playerPlaying: false,
+                    playerVolume: 0,
+                    playerMute: false,
+                    stationActive: null,
+                    stationErrored: false,
+                    stationFavourites: []
+                };
+            },
+            mounted: function mounted() {
+                this.playerVolume = kiwi.state.setting('plugin-radio.volume');
+                this.checkActiveStation();
+            },
+            computed: {
+                stationName: function stationName() {
+                    return this.stationActive ? this.stationActive.name : 'No Station Selected';
+                }
+            },
+            methods: {
+                playStation: function playStation(station) {
+                    if (!this.playerElement) {
+                        this.playerElement = document.getElementById('radio-audio');
+                        this.playerElement.addEventListener('error', function onError(event) {
+                            this.playerPlaying = false;
+                            this.stationErrored = true;
+                        });
+                    }
+
+                    // if there is not a station attempt to play the active station
+                    if (!station) {
+                        if (this.stationActive) {
+                            station = this.stationActive;
+                        } else {
+                            // random station
+                            station = this.stationsList[Math.floor(Math.random() * this.stationsList.length)];
+                        }
+                    }
+
+                    this.playerElement.src = station.source;
+                    this.makeStationActive(station);
+                    this.playerElement.play();
+                    this.playerPlaying = true;
+                },
+                playStationClose: function playStationClose(station) {
+                    this.playStation(station);
+                    if (kiwi.state.ui.is_narrow) {
+                        kiwi.showView(null);
+                    }
+                },
+                pauseStation: function pauseStation() {
+                    this.playerElement.pause();
+                    this.playerPlaying = false;
+                },
+                changeVolume: function changeVolume(volume) {
+                    kiwi.state.setting('plugin-radio.volume', volume);
+                    this.setVolume(volume)
+                },
+                setVolume: function setVolume(volume) {
+                    if (!this.playerElement) {
+                        return
+                    }
+                    this.playerElement.volume = parseFloat(volume);
+                },
+                makeStationActive: function makeStationActive(station) {
+                    this.stationActive = station;
+                    this.stationErrored = false;
+                    kiwi.state.setting('plugin-radio.active', station.name);
+                },
+                skipStation: function skipStation(direction) {
+                    // decide if we are skipping through stared or station list
+                    var stations = this.getStarred();
+                    if (stations.length <= 1) {
+                        stations = this.stationsList;
+                    }
+
+                    var stationIdx = this.getStationIdx(stations, this.stationActive);
+                    var playIdx = direction > 0 ? 0 : stations.length - 1;
+
+                    if (stationIdx !== null) {
+                        if (stationIdx + direction > stations.length - 1) {
+                            playIdx = 0;
+                        } else if (stationIdx + direction < 0) {
+                            playIdx = stations.length - 1;
+                        } else {
+                            playIdx = stationIdx + direction;
+                        }
+                    }
+                    var station = stations[playIdx];
+
+                    if (this.playerPlaying) {
+                        this.playStation(station);
+                    } else {
+                        this.makeStationActive(station);
+                    }
+                },
+                getStationIdx: function getStationIdx(stations, station) {
+                    if (!station) {
+                        return -1;
+                    }
+                    for (var i in stations) {
+                        var item = stations[i];
+                        if (item.name === station.name) {
+                            return parseFloat(i);
+                        }
+                    }
+                    return null
+                },
+                getActive: function getActive() {
+                    var active = kiwi.state.setting('plugin-radio.active');
+                    if (!active) {
+                        return;
+                    }
+                    for (var i in this.stationsList) {
+                        var station = this.stationsList[i];
+                        if (station.name === active) {
+                            return station;
+                        }
+                    }
+                },
+                getStarred: function getStarred() {
+                    var starred = kiwi.state.setting('plugin-radio.starred');
+                    var out = [];
+                    for (var i in starred) {
+                        var name = starred[i];
+                        for (var ii in this.stationsList) {
+                            var station = this.stationsList[ii];
+                            if (station.name === name) {
+                                out.push(station);
+                                break;
+                            }
+                        }
+                    }
+                    return out;
+                },
+                toggleStarred: function toggleStarred(station) {
+                    var starred = kiwi.state.setting('plugin-radio.starred').slice();
+                    if (this.isStarred(station)) {
+                        for (var i = starred.length - 1; i >= 0; i--) {
+                            if (starred[i] === station.name) {
+                                starred.splice(i, 1);
+                                break;
+                            }
+                        }
+                    } else {
+                        starred.push(station.name);
+                    }
+                    kiwi.state.setting('plugin-radio.starred', (starred.length > 0) ? starred : null);
+                },
+                isStarred: function isStarred(station) {
+                    var starred = kiwi.state.setting('plugin-radio.starred');
+                    for (var i in starred) {
+                        if (starred[i] === station.name) {
+                            return true;
+                        }
+                    }
+                    return false;
+                },
+                checkActiveStation: function checkActiveStation() {
+                    if (this.stationActive) {
+                        return;
+                    }
+
+                    var active = this.getActive();
+                    if (active) {
+                        this.makeStationActive(active);
+                        return
+                    }
+
+                    var starred = this.getStarred();
+                    if (starred.length > 0) {
+                        this.makeStationActive(starred[0]);
+                    }
+                },
+                openStationsList: function openStationsList() {
+                    kiwi.showView('RadioStations');
+                    if (kiwi.state.ui.is_narrow) {
+                        kiwi.state.$emit('statebrowser.hide');
+                    }
+                },
+                closeStationsList: function closeStationsList() {
+                    kiwi.showView(null);
+                }
+            }
+        });
+        RadioControlsComponent.$mount();
+        kiwi.addUi('browser', RadioControlsComponent.$el);
+
+        var RadioStationsComponent = {
+            template: '#radio-stations',
+            data: function data() {
+                return {
+                    plugin: RadioControlsComponent,
+                };
+            }
+        };
+        kiwi.addView('RadioStations', RadioStationsComponent);
+    }
+
+    function setDefaultSetting(name, val) {
+        if (!kiwi.state.getSetting('settings.plugin-radio.' + name)) {
+            kiwi.state.setSetting('settings.plugin-radio.' + name, val);
+        }
+    }
+});
+</script>
+
+<style>
+.radio-controls {
+    padding-bottom: 10px;
+}
+.radio-controls-buttons {
+    display: inline-block;
+}
+.radio-controls-button {
+    display: inline-block;
+    cursor: pointer;
+    padding: 2px;
+    margin-right: 10px;
+}
+.radio-controls-button:last-of-type {
+    margin-right: 0;
+}
+.radio-controls-volume {
+    position: relative;
+}
+.radio-controls-volume:hover .radio-controls-volume-container {
+    display: inherit;
+}
+.radio-controls-volume-container {
+    top: -92px;
+    left: -6px;
+    display: none;
+    position: absolute;
+}
+.radio-controls-slider {
+    writing-mode: bt-lr; /* IE */
+    -webkit-appearance: slider-vertical; /* WebKit */
+    width: 6px;
+    height: 80px;
+    margin: 12px;
+}
+.radio-controls-errored {
+    color: #F00;
+}
+.radio-stations {
+    display: flex;
+    flex-direction: column;
+    padding: 20px;
+    height: 100%;
+    overflow-x: scroll;
+}
+.radio-stations img {
+    margin: 0 7px;
+    margin-top: 7px;
+    max-height: 100px;
+    max-width: 200px;
+}
+.radio-stations table {
+    border-collapse: separate;
+    border-spacing: 0 10px;
+}
+.radio-stations table tr {
+    background-color: rgba(128, 128, 128, 0.2);
+    text-align: center;
+}
+.radio-stations table tr > td:last-of-type {
+    width: 100%;
+    text-align: left;
+}
+.radio-stations-details {
+    height: 100%;
+    min-height: 116px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+.radio-stations-play {
+    display: inline-block;
+    padding: 2px;
+    cursor: pointer;
+}
+.radio-stations-favorite {
+    display: inline-block;
+    padding: 2px;
+    cursor: pointer;
+}
+.radio-stations-title {
+    font-size: 1.3em;
+}
+.radio-stations-close {
+    display: none;
+    padding: 0 6px;
+    float: right;
+    color: #fff;
+    font-weight: 600;
+    background: #c00;
+}
+@media screen and (max-width: 769px) {
+    .radio-stations-close {
+        display: inline-block;
+    }
+}
+</style>
