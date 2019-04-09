@@ -77,35 +77,44 @@ kiwi.plugin('radio', function(kiwi, log) {
     setDefaultSetting('volume', '0.8');
     setDefaultSetting('starred', []);
     setDefaultSetting('active', '');
+    setDefaultSetting('reloadOnOpen', false);
 
-    // get our station list
-    var xmlhttp = new XMLHttpRequest();
-    xmlhttp.onload = function onLoad(temp) {
-        if (xmlhttp.status !== 200) {
-            console.error('plugin-radio: error loading stations list');
-            return
-        }
-        try {
-            var json = JSON.parse(xmlhttp.responseText);
-            if (!json) {
-                return;
+    var radioControlsComponent = null;
+    var stationsList = [];
+
+    loadStations();
+
+    function loadStations() {
+        // get our station list
+        var xmlhttp = new XMLHttpRequest();
+        xmlhttp.onload = function onLoad(temp) {
+            if (xmlhttp.status !== 200) {
+                console.error('plugin-radio: error loading stations list');
+                return
             }
-            if (json.length > 0) {
-                createComponents(json);
+            try {
+                var json = JSON.parse(xmlhttp.responseText);
+                if (!json || json.length === 0) {
+                    return;
+                }
+                if (radioControlsComponent === null) {
+                    createComponents();
+                }
+                radioControlsComponent.stationsList = json;
+            } catch (err) {
+                console.error('plugin-radio: error parsing stations list:', err);
             }
-        } catch (err) {
-            console.error('plugin-radio: error parsing stations list:', err);
         }
+        xmlhttp.open('GET', kiwi.state.setting('plugin-radio.url'), true);
+        xmlhttp.send();
     }
-    xmlhttp.open('GET', kiwi.state.setting('plugin-radio.url'), true);
-    xmlhttp.send();
 
-    function createComponents(stationsList) {
-        var RadioControlsComponent = new kiwi.Vue({
+    function createComponents() {
+        radioControlsComponent = new kiwi.Vue({
             template: '#radio-controls',
             data: function data() {
                 return {
-                    stationsList: stationsList,
+                    stationsList: [],
                     playerElement: null,
                     playerPlaying: false,
                     playerVolume: 0,
@@ -280,6 +289,9 @@ kiwi.plugin('radio', function(kiwi, log) {
                     }
                 },
                 openStationsList: function openStationsList() {
+                    if (kiwi.state.setting('plugin-radio.reloadOnOpen')) {
+                        loadStations();
+                    }
                     kiwi.showView('RadioStations');
                     if (kiwi.state.ui.is_narrow) {
                         kiwi.state.$emit('statebrowser.hide');
@@ -290,18 +302,18 @@ kiwi.plugin('radio', function(kiwi, log) {
                 }
             }
         });
-        RadioControlsComponent.$mount();
-        kiwi.addUi('browser', RadioControlsComponent.$el);
+        radioControlsComponent.$mount();
+        kiwi.addUi('browser', radioControlsComponent.$el);
 
-        var RadioStationsComponent = {
+        var radioStationsComponent = {
             template: '#radio-stations',
             data: function data() {
                 return {
-                    plugin: RadioControlsComponent,
+                    plugin: radioControlsComponent,
                 };
             }
         };
-        kiwi.addView('RadioStations', RadioStationsComponent);
+        kiwi.addView('RadioStations', radioStationsComponent);
     }
 
     function setDefaultSetting(name, val) {
