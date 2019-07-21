@@ -1,0 +1,284 @@
+<template id="themer">
+<div style="padding: 10px;">
+    <div style="padding-bottom: 10px;">
+        <button @click.stop="resetAll($event)">Reset All</button>
+    </div>
+    <table class="themer-table">
+        <tr v-for="(colour, cssVar) in currentColours" :key="cssVar.key" id="themer_table">
+            <td>{{ cssVar }}</td>
+            <td><a @click="resetColour(cssVar)"><i class="fa fa-undo" aria-hidden="true"></i></a>
+            <td><input type="color" :value="colour.toHexString()" @change="setColour(cssVar, $event)"></td>
+            <td><input type="number" :value="colour.getAlphaString()" @change="setAlpha(cssVar, $event)" min="0" max="1" step="0.01"></td>
+            <td>{{ colour.toString() }}</td>
+        </tr>
+    </table>
+</div>
+</template>
+
+<script>
+kiwi.plugin('themer', function(kiwi, log) {
+    var Colours = kiwi.require('helpers/Colours');
+    var currentColours = {};
+
+    // debounce local storage, lodash (_.) is loaded by kiwi
+    var updateLocalStorage = _.debounce(function() {
+        var outColours = {};
+        for (var cssVar in currentColours) {
+            var colour = currentColours[cssVar];
+            outColours[cssVar] = colour.toString();
+        }
+        localStorage.setItem('plugin-themer', JSON.stringify(outColours));
+    }, 2000);
+
+    // Nasty hack because we dont know when the theme loaded
+    // this will repeatedly look for :root until it is found
+    kiwi.on('ready', function() {
+        setTimeout(startup, 5);
+    });
+
+    // the component to render the Themer tab in kiwi settings
+    var themerComponent = {
+        template: '#themer',
+        data: function data() {
+            return {
+                currentColours: currentColours,
+            };
+        },
+        methods: {
+            setColour(cssVar, event) {
+                var colour = currentColours[cssVar];
+                colour.changeColour(event.target.value);
+                document.documentElement.style.setProperty(cssVar, colour.toString());
+                updateLocalStorage();
+            },
+            setAlpha(cssVar, event) {
+                var newAlpha = parseFloat(event.target.value);
+
+                // check input maximum bound
+                if (newAlpha > 1) {
+                    newAlpha = 1;
+                    event.target.value = '1.00';
+                }
+
+                // check input minimum bound
+                if (newAlpha < 0) {
+                    newAlpha = 0;
+                    event.target.value = '1.00';
+                }
+
+                // limit input to 2 decimals
+                if (newAlpha !== parseFloat(newAlpha.toFixed(2))) {
+                    newAlpha = parseFloat(newAlpha.toFixed(2));
+                    event.target.value = newAlpha.toFixed(2);
+                }
+
+                var colour = currentColours[cssVar];
+                colour.a = newAlpha;
+                colour.applyColour();
+                updateLocalStorage();
+            },
+            resetColour(cssVar) {
+                currentColours[cssVar].changeColour(currentColours[cssVar].default);
+                updateLocalStorage();
+            },
+            resetAll(event) {
+                event.preventDefault();
+                for (var cssVar in currentColours) {
+                    currentColours[cssVar].changeColour(currentColours[cssVar].default);
+                }
+                removeLocalStorage();
+            }
+        },
+    };
+
+    kiwi.addTab('settings', 'Themer', themerComponent, {});
+
+    function startup() {
+        var cssRule = getCssRule(':root');
+        if (cssRule) {
+            loadCssVars(cssRule);
+            return;
+        }
+        setTimeout(startup, 5);
+    }
+
+    function getCssRule(selectorText) {
+        for (var si = 0; si < document.styleSheets.length; si++) {
+            var styleSheet = document.styleSheets[si];
+            for (var ri = 0; ri < styleSheet.rules.length; ri++) {
+                var cssRule = document.styleSheets[si].rules[ri];
+                if (cssRule.selectorText !== selectorText) {
+                    continue;
+                }
+                return cssRule;
+            }
+        }
+    }
+
+    function loadCssVars(cssRule) {
+        var styleList = [].slice.call(cssRule.style);
+        var index = 0;
+        var used = {};
+        for (var i = 0; i < styleList.length; i++) {
+            var cssVar = styleList[i];
+            if (cssVar.indexOf('--') !== 0) {
+                continue;
+            }
+            var rawCssVar = cssRule.styleMap.get(cssVar);
+            var rawColour = cssRule.styleMap.get(cssVar)[0].trim();
+            if (rawCssVar.length === 2 && rawCssVar[1].variable) {
+                rawColour = 'var(' + rawCssVar[1].variable + ')';
+            }
+            if (typeof rawColour !== 'string') {
+                console.log('[themer] Error: failed to load theme colour:', cssVar, '-', rawColour);
+                continue;
+            }
+            var colour = newColour(cssVar, rawColour);
+            colour.applyColour();
+            colour.index = index;
+            colour.default = colour.toString();
+            currentColours[cssVar] = colour;
+            used[cssVar] = true;
+        }
+        loadLocalStorage();
+    }
+
+    function loadLocalStorage() {
+        var newCssVars = localStorage.getItem('plugin-themer');
+        if (!newCssVars) {
+            return;
+        }
+
+        newColours = JSON.parse(newCssVars);
+        for (var cssVar in newColours) {
+            if (!currentColours[cssVar]) {
+                continue;
+            }
+            currentColours[cssVar].changeColour(newColours[cssVar]);
+        }
+    }
+
+    function removeLocalStorage() {
+        localStorage.removeItem('plugin-themer');
+    }
+
+    function newColour(cssVar, rawColour) {
+        var rgba = parseColour(cssVar, rawColour);
+        var colour = {
+            cssVar: cssVar,
+            r: rgba.r,
+            g: rgba.g,
+            b: rgba.b,
+            a: rgba.a,
+            default: '', // current theme colour when loaded
+            index: 0,
+            toHexString: function toHexString() {
+                return Colours.rgb2hex(this);
+            },
+            toString: function toString() {
+                return 'rgba(' + this.r + ', ' + this.g + ', ' + this.b + ', ' + this.a + ')';
+            },
+            getAlphaString: function getAlphaString() {
+                return this.a.toFixed(2);
+            },
+            changeColour: function changeColour(rawColour) {
+                var rgba = parseColour(this.cssVar, rawColour);
+                this.r = rgba.r;
+                this.g = rgba.g;
+                this.b = rgba.b;
+                this.a = rgba.a;
+                this.applyColour();
+            },
+            applyColour: function applyColour() {
+                document.documentElement.style.setProperty(this.cssVar, this.toString());
+            },
+        };
+        return colour;
+    }
+
+    function parseColour(cssVar, rawColour) {
+        var rgba = { r: 0, g: 0, b: 0, a: 0 };
+        if (!rawColour) {
+            console.log('[themer] Error parsing colour:', cssVar, '"' + rawColour + '"');
+            return rgba;
+        }
+
+        if (rawColour[0] === '#') {
+            rgba = hex2rgba(rawColour);
+        } else if (rawColour.indexOf('rgb') === 0) {
+            var match = rgb2parts(rawColour);
+            if (match) {
+                rgba.r = parseInt(match[2], 10);
+                rgba.g = parseInt(match[3], 10);
+                rgba.b = parseInt(match[4], 10);
+                rgba.a = parseFloat(match[5] ? match[5] : -1);
+            } else {
+                console.log('[themer] Error parsing rgb colour:', rawColour);
+            }
+        } else if (rawColour.indexOf('var') === 0) {
+            var cssVar = var2cssVar(rawColour);
+            if (cssVar && currentColours[cssVar]) {
+                var colour = currentColours[cssVar];
+                rgba.r = colour.r;
+                rgba.g = colour.g;
+                rgba.b = colour.b;
+                rgba.a = colour.a;
+            } else {
+                console.log('[themer] Error parsing var colour:', rawColour, '(' + cssVar + ')');
+            }
+        } else if (rawColour === 'transparent') {
+            // dont need to show an error here
+        } else {
+            console.log('[themer] Error parsing colour:', rawColour, '(' + cssVar + ')');
+        }
+
+        if (rgba.a === -1) {
+            rgba.a = currentColours[cssVar] ? currentColours[cssVar].a : 1;
+        }
+
+        return rgba;
+    }
+
+    // Adapted from http://stackoverflow.com/a/5624139
+    // note alpha (a) is -1 when not present
+    function hex2rgba(_hex) {
+        let shorthandRegex = /^#?([a-f\d])([a-f\d])([a-f\d])([a-f\d])?$/i;
+        let hex = _hex.replace(shorthandRegex, (m, r, g, b, a) => r + r + g + g + b + b + (a ? a + a : ''));
+
+        let result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})?$/i.exec(hex);
+        return result ? {
+            r: parseInt(result[1], 16),
+            g: parseInt(result[2], 16),
+            b: parseInt(result[3], 16),
+            a: result[4] ? parseFloat((parseInt(result[4], 16) / 255).toFixed(2)) : -1,
+        } : null;
+    }
+
+    function rgb2parts(rgba) {
+        var re = /(rgba?)\((\d+),\s?(\d+),\s?(\d+),?\s?(\d+\.?\d*)?\)/;
+        return rgba.match(re);
+    }
+
+    function var2cssVar(rgba) {
+        var re = /var\((.+)\)/;
+        return rgba.match(re)[1];
+    }
+});
+</script>
+
+<style>
+table.themer-table td {
+    border-collapse: collapse;
+    padding: 5px 10px;
+}
+table.themer-table tr:nth-child(odd) {
+    background-color: #bbbbbb;
+}
+table.themer-table a {
+    cursor: pointer;
+}
+table.themer-table input[type="number"] {
+    border: 1px solid #a9a9a9;
+    padding: 4px;
+}
+</style>
