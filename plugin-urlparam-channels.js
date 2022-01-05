@@ -14,7 +14,7 @@ kiwi.plugin('url-channels', function(kiwi, log) {
             const newBuffer = kiwi.state.addBuffer(network.id, bufferName);
             newBuffer.enabled = true;
 
-            if (activeBuffer && !activeBuffer.isChannel()) {
+            if (!activeBuffer || !activeBuffer.isChannel()) {
                 kiwi.state.setActiveBuffer(network.id, newBuffer.name);
             }
         });
