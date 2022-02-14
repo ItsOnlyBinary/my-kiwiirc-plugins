@@ -188,21 +188,21 @@ kiwi.plugin('giphy', function giphy(kiwi, log) {
         return;
     }
 
-    var giphyURL = RegExp('(^|\\s+)((https?://media[0-9]\\.giphy\\.com/media/[a-zA-Z0-9]+/giphy)(_s)?\\.gif)(\\s+|$)');
+    var giphyURL = RegExp('(^|\\s+)((https?://media[0-9]\\.giphy\\.com/media/[a-zA-Z0-9]+/giphy)(_s)?\\.gif)(\\?|\\s+|$)');
     kiwi.state.$on('message.new', function postStyle(event) {
         var message = event.message;
-        if (!message || event.type !== 'privmsg') {
+        if (!message || message.type !== 'privmsg') {
             return;
         }
 
-        if (giphyURL.test(event.message)) {
-            var matches = event.message.match(giphyURL);
+        if (giphyURL.test(message.message)) {
+            var matches = message.message.match(giphyURL);
             var giphyEmbededComponent = new kiwi.Vue(giphyEmbeded);
             giphyEmbededComponent.src = matches[3] + '_s.gif';
             giphyEmbededComponent.image = matches[3] + '_s.gif';
             giphyEmbededComponent.giphy = matches[3] + '.gif';
             giphyEmbededComponent.$mount();
-            event.bodyTemplate = giphyEmbededComponent;
+            message.bodyTemplate = giphyEmbededComponent;
         }
     });
 
